@@ -165,9 +165,10 @@ class TextExtractor:
         '.epub': 'epub',
     }
     
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, segment_size: int = 200):
         self.file_path = Path(file_path)
         self.extension = self.file_path.suffix.lower()
+        self.segment_size = segment_size
         
     def extract(self) -> List[TextSegment]:
         """Extract text segments from the file."""
@@ -487,9 +488,20 @@ class TextExtractor:
         if odf_load is None or odf_text is None:
             raise ImportError("odfpy is required for ODT support. Install with: pip install odfpy")
         
+        def get_text_content(element) -> str:
+            """Recursively extract text content from ODF elements."""
+            text_parts = []
+            if hasattr(element, 'childNodes'):
+                for child in element.childNodes:
+                    if child.nodeType == child.TEXT_NODE:
+                        text_parts.append(child.data)
+                    else:
+                        text_parts.append(get_text_content(child))
+            return ''.join(text_parts)
+        
         doc = odf_load(str(self.file_path))
         paragraphs = doc.getElementsByType(odf_text.P)
-        content = '\n'.join([str(p) for p in paragraphs])
+        content = '\n'.join([get_text_content(p) for p in paragraphs])
         return self._split_into_segments(content)
     
     def _extract_epub(self) -> List[TextSegment]:
@@ -512,8 +524,12 @@ class TextExtractor:
         return self._split_into_segments(content)
     
     def _split_into_segments(self, content: str, start_pos: int = 0, 
-                            segment_size: int = 200) -> List[TextSegment]:
+                            segment_size: Optional[int] = None) -> List[TextSegment]:
         """Split content into analyzable segments."""
+        # Use instance segment_size if not explicitly provided
+        if segment_size is None:
+            segment_size = self.segment_size
+        
         # Clean the content
         content = re.sub(r'\s+', ' ', content).strip()
         
@@ -587,40 +603,79 @@ class EmotionAnalyzer:
             return self._analyze_basic(segments)
     
     def _analyze_transformer(self, segments: List[TextSegment]) -> List[EmotionScore]:
-        """Analyze using transformer model."""
+        """Analyze using transformer model with batched processing for better performance."""
         scores = []
         
-        for i, segment in enumerate(segments):
-            try:
-                result = self.classifier(segment.text[:512])  # Truncate for model
-                emotions = {}
-                
-                if result and isinstance(result, list):
-                    for item in result[0] if isinstance(result[0], list) else result:
-                        label = item['label'].lower()
-                        score = item['score']
-                        emotions[label] = score
-                
-                if emotions:
-                    dominant = max(emotions, key=emotions.get)
-                    intensity = emotions[dominant]
-                else:
-                    dominant = 'neutral'
-                    intensity = 0.0
-                
-                scores.append(EmotionScore(
-                    segment_id=i,
-                    emotions=emotions,
-                    dominant_emotion=dominant,
-                    intensity=intensity
-                ))
-            except Exception as e:
-                scores.append(EmotionScore(
-                    segment_id=i,
-                    emotions={'neutral': 1.0},
-                    dominant_emotion='neutral',
-                    intensity=0.0
-                ))
+        # Prepare all texts for batch processing (truncate to 512 chars for model)
+        texts = [segment.text[:512] for segment in segments]
+        
+        try:
+            # Process all segments in a single batch call for efficiency
+            results = self.classifier(texts)
+            
+            for i, result in enumerate(results):
+                try:
+                    emotions = {}
+                    
+                    if result and isinstance(result, list):
+                        for item in result:
+                            label = item['label'].lower()
+                            score = item['score']
+                            emotions[label] = score
+                    
+                    if emotions:
+                        dominant = max(emotions, key=emotions.get)
+                        intensity = emotions[dominant]
+                    else:
+                        dominant = 'neutral'
+                        intensity = 0.0
+                    
+                    scores.append(EmotionScore(
+                        segment_id=i,
+                        emotions=emotions,
+                        dominant_emotion=dominant,
+                        intensity=intensity
+                    ))
+                except Exception:
+                    scores.append(EmotionScore(
+                        segment_id=i,
+                        emotions={'neutral': 1.0},
+                        dominant_emotion='neutral',
+                        intensity=0.0
+                    ))
+        except Exception:
+            # Fallback to individual processing if batch fails
+            for i, segment in enumerate(segments):
+                try:
+                    result = self.classifier(segment.text[:512])
+                    emotions = {}
+                    
+                    if result and isinstance(result, list):
+                        for item in result[0] if isinstance(result[0], list) else result:
+                            label = item['label'].lower()
+                            score = item['score']
+                            emotions[label] = score
+                    
+                    if emotions:
+                        dominant = max(emotions, key=emotions.get)
+                        intensity = emotions[dominant]
+                    else:
+                        dominant = 'neutral'
+                        intensity = 0.0
+                    
+                    scores.append(EmotionScore(
+                        segment_id=i,
+                        emotions=emotions,
+                        dominant_emotion=dominant,
+                        intensity=intensity
+                    ))
+                except Exception:
+                    scores.append(EmotionScore(
+                        segment_id=i,
+                        emotions={'neutral': 1.0},
+                        dominant_emotion='neutral',
+                        intensity=0.0
+                    ))
         
         return scores
     
@@ -717,7 +772,7 @@ class HeatmapGenerator:
         return sorted_emotions
     
     def generate(self, output_path: str, title: str = "Emotional Heatmap",
-                show_timeline: bool = True, style: str = 'heatmap'):
+                style: str = 'heatmap'):
         """Generate and save the heatmap visualization."""
         if style == 'heatmap':
             self._generate_heatmap(output_path, title)
@@ -1009,7 +1064,7 @@ Examples:
     try:
         # Extract text
         print("\n[1/3] Extracting text...")
-        extractor = TextExtractor(args.input_file)
+        extractor = TextExtractor(args.input_file, segment_size=args.segment_size)
         segments = extractor.extract()
         print(f"  Extracted {len(segments)} segments")
         
