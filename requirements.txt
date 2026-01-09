@@ -1,0 +1,11 @@
+transformers
+torch
+pandas
+matplotlib
+seaborn
+python-docx
+PyPDF2
+striprtf
+markdown
+beautifulsoup4
+chardet
