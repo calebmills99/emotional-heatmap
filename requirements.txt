@@ -1,0 +1,32 @@
+# Emotional Heatmap Generator - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core visualization
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+scipy>=1.10.0
+
+# Document parsing
+python-docx>=1.1.0          # DOCX support
+pdfplumber>=0.10.0          # PDF support
+striprtf>=0.0.26            # RTF support
+markdown>=3.5.0             # Markdown support
+beautifulsoup4>=4.12.0      # HTML parsing
+lxml>=4.9.0                 # XML/HTML parser backend
+
+# Subtitle formats
+pysrt>=1.1.2                # SRT subtitles
+webvtt-py>=0.4.6            # WebVTT subtitles
+
+# Additional document formats (optional)
+odfpy>=1.4.1                # ODT (OpenDocument) support
+ebooklib>=0.18              # EPUB support
+
+# Emotion analysis
+nrclex>=4.0                 # NRC Emotion Lexicon
+
+# Optional: Transformer-based analysis (better accuracy, requires more resources)
+# Uncomment the following lines if you want transformer support:
+# transformers>=4.35.0
+# torch>=2.0.0
